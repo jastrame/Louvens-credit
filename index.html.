@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#081426">
+<title>LOUVENS KREDI</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#081426;color:#f4f6fb;font-family:Arial,sans-serif}
+header{padding:22px;background:#101f36;border-bottom:2px solid #d5ad55}
+h1{margin:0;color:#e8c36c;font-size:23px}
+header p{color:#aab7ca;margin:7px 0 0}
+main{padding:15px;max-width:850px;margin:auto}
+.card{background:#12233c;border:1px solid #263b59;border-radius:13px;padding:16px;margin-bottom:14px}
+h2{font-size:17px;color:#e8c36c;margin-top:0}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.stat{background:#0c1a2e;padding:13px;border-radius:10px}
+.stat small{color:#aab7ca}
+.stat strong{display:block;font-size:19px;margin-top:8px;color:#e8c36c}
+input,button{width:100%;padding:12px;margin:6px 0;border-radius:8px;font-size:15px}
+input{background:#09172a;color:white;border:1px solid #405575}
+button{background:#d5ad55;color:#101827;border:0;font-weight:bold}
+button.secondary{background:#263c5b;color:white}
+button.danger{background:#873c48;color:white}
+.item{background:#0b192c;padding:13px;border-radius:9px;margin:9px 0}
+.muted{color:#aab7ca;font-size:13px}
+.paid{color:#4edb91;font-weight:bold}
+.due{color:#f3c66b;font-weight:bold}
+.hidden{display:none}
+nav{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:14px}
+nav button{width:auto;flex:1;min-width:90px}
+hr{border-color:#263b59}
+</style>
+</head>
+<body>
+<header>
+<h1>LOUVENS KREDI</h1>
+<p>Gestion financière • Suivi des crédits</p>
+</header>
+<main>
+
+<section id="lock" class="card">
+<h2 id="lockTitle">Créer votre code PIN personnel</h2>
+<p class="muted" id="lockInfo">Ce code protégera l'accès à votre application.</p>
+<input id="pin" type="password" inputmode="numeric" placeholder="Code PIN (4 à 12 chiffres)">
+<button onclick="unlock()">Continuer</button>
+</section>
+
+<div id="app" class="hidden">
+<nav>
+<button onclick="show('dashboard')">Tableau de bord</button>
+<button onclick="show('add')">Nouveau crédit</button>
+<button onclick="show('loans')">Clients et crédits</button>
+</nav>
+
+<section id="dashboard">
+<div class="card">
+<h2>Vue générale</h2>
+<div class="stats">
+<div class="stat"><small>Capital prêté</small><strong id="lent">0 G</strong></div>
+<div class="stat"><small>Argent encaissé</small><strong id="collected">0 G</strong></div>
+<div class="stat"><small>Reste à encaisser</small><strong id="remaining">0 G</strong></div>
+<div class="stat"><small>Intérêts réalisés*</small><strong id="profit">0 G</strong></div>
+</div>
+<p class="muted">*Estimation selon une répartition proportionnelle des intérêts à chaque versement.</p>
+</div>
+<div class="card">
+<h2>Évolution des encaissements</h2>
+<div id="chart" class="muted">Aucun encaissement pour le moment.</div>
+</div>
+<div class="card">
+<h2>Activité récente</h2>
+<div id="recent" class="muted">Aucune activité.</div>
+</div>
+</section>
+
+<section id="add" class="hidden">
+<div class="card">
+<h2>Enregistrer un nouveau crédit</h2>
+<input id="client" placeholder="Nom du client">
+<input id="phone" placeholder="Téléphone (facultatif)">
+<input id="capital" type="number" min="1" placeholder="Capital prêté (G)">
+<input id="total" type="number" min="1" placeholder="Montant total à rembourser (G)">
+<input id="daily" type="number" min="1" placeholder="Versement quotidien (G)">
+<label class="muted">Date du premier versement</label>
+<input id="firstDate" type="date">
+<button onclick="addLoan()">Enregistrer le crédit</button>
+</div>
+</section>
+
+<section id="loans" class="hidden">
+<div class="card">
+<h2>Liste des clients</h2>
+<input id="search" placeholder="Rechercher un client..." oninput="renderLoans()">
+<div id="loanList"></div>
+</div>
+</section>
+
+<section id="details" class="hidden">
+<div class="card">
+<button class="secondary" onclick="show('loans')">← Retour</button>
+<div id="detailContent"></div>
+</div>
+</section>
+
+<div class="card">
+<h2>Sécurité et sauvegarde</h2>
+<button class="secondary" onclick="backup()">Exporter ma sauvegarde</button>
+<input type="file" id="restoreFile" accept=".json" onchange="restore(event)">
+<button class="secondary" onclick="changePin()">Changer mon PIN</button>
+<button class="danger" onclick="logout()">Verrouiller l'application</button>
+<p class="muted">Les données sont conservées localement sur cet appareil. Exportez régulièrement une sauvegarde.</p>
+</div>
+</div>
+</main>
+
+<script>
+const KEY="louvens_kredi_data_v1";
+const PINKEY="louvens_kredi_pin_v1";
+let loans=[],selected=null;
+
+async function hash(s){
+ const b=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(s));
+ return Array.from(new Uint8Array(b)).map(x=>x.toString(16).padStart(2,"0")).join("");
+}
+function save(){localStorage.setItem(KEY,JSON.stringify(loans));}
+function load(){try{loans=JSON.parse(localStorage.getItem(KEY)||"[]")}catch(e){loans=[]}}
+async function unlock(){
+ const p=document.getElementById("pin").value;
+ if(!/^\d{4,12}$/.test(p)){alert("Entrez un PIN de 4 à 12 chiffres.");return}
+ const old=localStorage.getItem(PINKEY);
+ if(!old){localStorage.setItem(PINKEY,await hash(p));}
+ else if(old!==await hash(p)){alert("Code PIN incorrect.");return}
+ load();
+ document.getElementById("lock").classList.add("hidden");
+ document.getElementById("app").classList.remove("hidden");
+ refresh();
+}
+if(localStorage.getItem(PINKEY)){
+ document.getElementById("lockTitle").textContent="Connexion sécurisée";
+ document.getElementById("lockInfo").textContent="Entrez votre code PIN pour accéder à LOUVENS KREDI.";
+}
+function show(id){
+ ["dashboard","add","loans","details"].forEach(x=>document.getElementById(x).classList.add("hidden"));
+ document.getElementById(id).classList.remove("hidden");
+ if(id==="loans")renderLoans();
+}
+function money(n){return Math.round(n).toLocaleString("fr-FR")+" G"}
+function addLoan(){
+ const name=document.getElementById("client").value.trim();
+ const capital=Number(document.getElementById("capital").value);
+ const total=Number(document.getElementById("total").value);
+ const daily=Number(document.getElementById("daily").value);
+ const date=document.getElementById("firstDate").value;
+ if(!name||capital<=0||total<capital||daily<=0||!date){alert("Vérifiez tous les champs.");return}
+ const count=Math.ceil(total/daily);
+ const payments=[];
+ let rest=total;
+ for(let i=0;i<count;i++){
+  const amount=Math.min(daily,rest);
+  const d=new Date(date+"T12:00:00");
+  d.setDate(d.getDate()+i);
+  payments.push({date:d.toISOString().slice(0,10),amount,paid:false});
+  rest-=amount;
+ }
+ loans.push({id:Date.now(),name,phone:document.getElementById("phone").value,capital,total,daily,date,payments});
+ save();refresh();show("loans");
+ ["client","phone","capital","total","daily","firstDate"].forEach(x=>document.getElementById(x).value="");
+ alert("Crédit enregistré avec succès.");
+}
+function renderLoans(){
+ const q=(document.getElementById("search").value||"").toLowerCase();
+ const el=document.getElementById("loanList");el.innerHTML="";
+ loans.filter(l=>l.name.toLowerCase().includes(q)).forEach(l=>{
+  const paid=l.payments.filter(p=>p.paid).reduce((s,p)=>s+p.amount,0);
+  const left=l.total-paid;
+  const div=document.createElement("div");div.className="item";
+  const title=document.createElement("strong");title.textContent=l.name;
+  const info=document.createElement("p");info.className="muted";
+  info.textContent="Prêté : "+money(l.capital)+" • Restant : "+money(left);
+  const btn=document.createElement("button");btn.textContent="Voir le dossier";
+  btn.onclick=()=>openLoan(l.id);
+  div.append(title,info,btn);el.append(div);
+ });
+ if(!el.children.length)el.textContent="Aucun client enregistré.";
+}
+function openLoan(id){
+ selected=loans.find(l=>l.id===id);if(!selected)return;
+ show("details");
+ const el=document.getElementById("detailContent");el.innerHTML="";
+ const h=document.createElement("h2");h.textContent=selected.name;
+ el.append(h);
+ const info=document.createElement("p");info.textContent="Capital : "+money(selected.capital)+" | Total : "+money(selected.total);
+ el.append(info);
+ const phone=document.createElement("p");phone.className="muted";phone.textContent=selected.phone||"Téléphone non renseigné";el.append(phone);
+ selected.payments.forEach((p,i)=>{
+  const div=document.createElement("div");div.className="item";
+  const line=document.createElement("span");line.textContent=p.date+" — "+money(p.amount)+" — ";
+  const status=document.createElement("span");status.className=p.paid?"paid":"due";status.textContent=p.paid?"PAYÉ":"À PAYER";
+  const btn=document.createElement("button");btn.className=p.paid?"secondary":"";
+  btn.textContent=p.paid?"Annuler paiement":"Marquer comme payé";
+  btn.onclick=()=>{p.paid=!p.paid;save();openLoan(id);refresh()};
+  div.append(line,status,btn);el.append(div);
+ });
+ const del=document.createElement("button");del.className="danger";del.textContent="Supprimer ce crédit";
+ del.onclick=()=>{if(confirm("Supprimer définitivement ce dossier ?")){loans=loans.filter(x=>x.id!==id);save();refresh();show("loans")}};
+ el.append(del);
+}
+function refresh(){
+ let lent=0,collected=0,remaining=0,profit=0;
+ loans.forEach(l=>{
+  lent+=l.capital;
+  const paid=l.payments.filter(p=>p.paid);
+  const received=paid.reduce((s,p)=>s+p.amount,0);
+  collected+=received;remaining+=l.total-received;
+  profit+=received*(l.total-l.capital)/l.total;
+ });
+ document.getElementById("lent").textContent=money(lent);
+ document.getElementById("collected").textContent=money(collected);
+ document.getElementById("remaining").textContent=money(remaining);
+ document.getElementById("profit").textContent=money(profit);
+ const recent=document.getElementById("recent");recent.innerHTML="";
+ loans.slice(-5).reverse().forEach(l=>{
+  const p=document.createElement("p");p.textContent=l.name+" — "+money(l.total);recent.append(p);
+ });
+ if(!recent.children.length)recent.textContent="Aucune activité.";
+ document.getElementById("chart").textContent=collected? "Total encaissé : "+money(collected)+" / Total des crédits : "+money(lent):"Aucun encaissement pour le moment.";
+}
+function backup(){
+ const blob=new Blob([JSON.stringify(loans,null,2)],{type:"application/json"});
+ const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="sauvegarde-louvens-kredi.json";a.click();URL.revokeObjectURL(a.href);
+}
+function restore(e){
+ const f=e.target.files[0];if(!f)return;
+ const r=new FileReader();
+ r.onload=()=>{try{const d=JSON.parse(r.result);if(!Array.isArray(d))throw 0;loans=d;save();refresh();alert("Sauvegarde restaurée.");}catch(err){alert("Fichier invalide.");}};
+ r.readAsText(f);
+}
+async function changePin(){
+ const p=prompt("Nouveau PIN (4 à 12 chiffres)");
+ if(!p||!/^\d{4,12}$/.test(p)){alert("PIN invalide.");return}
+ localStorage.setItem(PINKEY,await hash(p));alert("PIN modifié.");logout();
+}
+function logout(){
+ document.getElementById("app").classList.add("hidden");
+ document.getElementById("lock").classList.remove("hidden");
+ document.getElementById("pin").value="";
+}
+</script>
+</body>
+</html>
